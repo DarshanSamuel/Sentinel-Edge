@@ -5,22 +5,23 @@ This repository contains the full architecture for an advanced Industrial IoT cy
 ## 🏗️ Architectural Overview
 
 ```mermaid
-graph TD
-    subgraph Edge Site
-    Hardware[Modbus Sensors] -->|Polling| EdgeNode(Raspberry Pi / Laptop)
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1A1A24', 'primaryTextColor': '#00E5FF', 'primaryBorderColor': '#00E5FF', 'lineColor': '#1E90FF', 'clusterBkg': '#0F0F16', 'clusterBorder': '#333'}}}%%
+flowchart LR
+    subgraph "🏭 Edge Site"
+    Hardware[Modbus Sensors] -->|Polling| EdgeNode[Edge Device / Processor]
     EdgeNode --> |Deep Packet Inspection| Parser[Inference Pipeline]
-    Parser --> |LLM Llama.cpp| Gemma2[Gemma 2 Finetuned]
+    Parser --> |Local LLM| Gemma2[Gemma 2 Inference]
     end
 
-    subgraph Firebase Cloud
-    Parser -->|Secure Push| Firestore[(Firestore Database)]
-    Firestore -.->|scada_telemetry| DashWeb
-    Firestore -.->|auth| Users[(Users Collection)]
+    subgraph "☁️ Firebase Cloud"
+    Parser -->|Secure Telemetry Push| Firestore[(Firestore DB)]
+    Firestore -.->|Syncs Data| DashWeb
+    Firestore -.->|Auth Gate| Users[(Users Registry)]
     end
 
-    subgraph Operations Center
-    DashWeb(Flutter Web App) -->|StreamBuilder| Firestore
-    DashWeb -->|Admin Interface| Users
+    subgraph "🛡️ Operations Center"
+    DashWeb{Flutter Dashboard} -->|StreamBuilder| Firestore
+    DashWeb -->|Admin Configures| Users
     end
 ```
 
