@@ -28,25 +28,25 @@
    pip install llama-cpp-python tqdm
  
  Usage:
-   # Full 1830-entry evaluation (Q4_K_M on RPi5 ~4 hours, on laptop ~2 hours)
-   python 06_test_suite.py \\
+   # Full 1830-entry evaluation (Q4_K_M on Edge Device ~4 hours, on PC ~2 hours)
+   python model_inference.py \\
      --model sentineledge-gemma2-2b-q5_k_m.gguf \\
      --dataset sentineledge_dataset.json
    
-   # Quick stratified sample (200 entries, ~15 min on laptop)
-   python 06_test_suite.py \\
+   # Quick stratified sample (200 entries, ~15 min on PC)
+   python model_inference.py \\
      --model sentineledge-gemma2-2b-q5_k_m.gguf \\
      --dataset sentineledge_dataset.json \\
      --sample 200
    
    # Multi-worker for speed (use physical core count)
-   python 06_test_suite.py \\
+   python model_inference.py \\
      --model sentineledge-gemma2-2b-q5_k_m.gguf \\
      --dataset sentineledge_dataset.json \\
      --workers 4
    
    # Resume from a previous crash
-   python 06_test_suite.py \\
+   python model_inference.py \\
      --model sentineledge-gemma2-2b-q5_k_m.gguf \\
      --dataset sentineledge_dataset.json \\
      --resume
@@ -1005,15 +1005,15 @@ Detected platform:
   Defaults:       workers={plat['default_workers']}, threads={plat['default_threads']}, ctx={plat['default_ctx']}
 
 Examples:
-  # Quick 200-entry stratified sample (~15 min on laptop)
+  # Quick 200-entry stratified sample (~15 min on PC)
   %(prog)s --model sentineledge-gemma2-2b-q5_k_m.gguf \\
            --dataset sentineledge_dataset.json --sample 200
 
-  # Full 1830 evaluation on laptop (~2 hours)
+  # Full 1830 evaluation on PC (~2 hours)
   %(prog)s --model sentineledge-gemma2-2b-q5_k_m.gguf \\
            --dataset sentineledge_dataset.json
 
-  # Full eval on RPi5 with Q4_K_M (~4-6 hours)
+  # Full eval on Edge Device with Q4_K_M (~4-6 hours)
   %(prog)s --model sentineledge-gemma2-2b-q4_k_m.gguf \\
            --dataset sentineledge_dataset.json \\
            --threads 4 --ctx-size 2048
