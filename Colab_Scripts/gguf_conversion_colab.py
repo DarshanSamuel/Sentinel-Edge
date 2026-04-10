@@ -3,7 +3,7 @@
  SentinelEdge GGUF Conversion - Pure llama.cpp (v5, NO UNSLOTH)
  
  Converts the fine-tuned SentinelEdge model (merged 16-bit HF format)
- to GGUF for CPU edge deployment on laptop and Raspberry Pi 5.
+ to GGUF for CPU edge deployment on PC and Edge Device.
  
  Pipeline:
    1. Locate merged 16-bit model from 02_gemma2_finetune_colab.py
@@ -19,7 +19,7 @@
    - Q4_K_M (~1.57 GB)  RPi5, recommended
    - Q4_0   (~1.44 GB)  RPi5, fastest
  
- Run AFTER 02_gemma2_finetune_colab.py completes successfully.
+ Run AFTER gemma2_finetune_colab.py completes successfully.
 ==========================================================================
 """
 
@@ -49,7 +49,7 @@ if not os.path.exists(MERGED_DIR):
             raise FileNotFoundError(
                 f"Merged model not found.\n"
                 f"  Expected at: {MERGED_DIR}  or  {GDRIVE_MERGED}\n"
-                "Run 02_gemma2_finetune_colab.py first (Cell 14 saves the merged model)."
+                "Run gemma2_finetune_colab.py first (Cell 14 saves the merged model)."
             )
     except ImportError:
         raise RuntimeError(f"Not in Colab. Place merged model at {MERGED_DIR}")
