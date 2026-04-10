@@ -6,7 +6,7 @@
  to GGUF for CPU edge deployment on PC and Edge Device.
  
  Pipeline:
-   1. Locate merged 16-bit model from 02_gemma2_finetune_colab.py
+   1. Locate merged 16-bit model from gemma2_finetune_colab.py
    2. Clone llama.cpp + build llama-quantize
    3. Convert HF safetensors -> GGUF F16
    4. Quantize F16 GGUF -> Q8_0, Q5_K_M, Q4_K_M, Q4_0
