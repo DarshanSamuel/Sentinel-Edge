@@ -6,14 +6,13 @@
  Model:   google/gemma-2-2b-it
  Stack:   transformers + TRL + PEFT + bitsandbytes  (NO UNSLOTH)
  
- Why this is a complete rewrite:
-   The Unsloth-based version had three independent failure modes that
-   compounded into a broken pipeline:
-     1. UnslothSFTTrainer doesn't auto-detect "messages" datasets
-     2. Unsloth's "gemma2" chat template lacks {% generation %} tags,
-        breaking SFTConfig(assistant_only_loss=True)
-     3. train_on_responses_only string-matching produced labels that
-        gave loss = 9.37 (near-random for 256k vocab)
+ The Unsloth-based version had three independent failure modes that
+ compounded into a broken pipeline:
+   1. UnslothSFTTrainer doesn't auto-detect "messages" datasets
+   2. Unsloth's "gemma2" chat template lacks {% generation %} tags,
+      breaking SFTConfig(assistant_only_loss=True)
+   3. train_on_responses_only string-matching produced labels that
+      gave loss = 9.37 (near-random for 256k vocab)
    
    This version uses the pure HuggingFace stack (the same one used in
    the AI Engineering Academy / adithya-s-k Gemma fine-tuning guide):
