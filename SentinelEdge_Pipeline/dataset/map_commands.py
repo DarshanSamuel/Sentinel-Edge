@@ -17,8 +17,8 @@
    - alias       (chlorine -> register + code)
  
  Usage:
-   python 07_modbus_command_mapper.py
-   python 07_modbus_command_mapper.py --dataset path/to/dataset.json --output codes.json
+   python map_commands.py
+   python map_commands.py --dataset path/to/dataset.json --output codes.json
 ==========================================================================
 """
 
