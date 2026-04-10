@@ -151,7 +151,35 @@ if QUANTIZE_BIN is None:
 print(f"[+] llama-quantize built: {QUANTIZE_BIN}")
 
 
-# %%  ========== CELL 4: HF -> F16 GGUF CONVERSION ==========
+# %%  ========== CELL 4:SETUP FOR F16 TO GGUF CONVERSION ==========
+import os
+import shutil
+from huggingface_hub import hf_hub_download
+
+# Update this if you used a different base model (e.g., "google/gemma-2-2b-it")
+BASE_MODEL_ID = "google/gemma-2-2b"
+MERGED_DIR = "sentineledge_gemma2_merged_16bit"
+
+print(f"[*] Downloading tokenizer.model from {BASE_MODEL_ID}...")
+try:
+    # Download the missing tokenizer.model from the original Hugging Face repo
+    original_tokenizer_path = hf_hub_download(
+        repo_id=BASE_MODEL_ID,
+        filename="tokenizer.model"
+    )
+
+    # Copy it directly into your merged directory where llama.cpp is looking for it
+    dest_path = os.path.join(MERGED_DIR, "tokenizer.model")
+    shutil.copy(original_tokenizer_path, dest_path)
+
+    print(f"[+] Successfully copied tokenizer.model to {dest_path}")
+except Exception as e:
+    print(f"[!] Error downloading tokenizer.model: {e}")
+    print("    Please ensure you have accepted the Gemma terms on Hugging Face")
+    print("    and are logged in using `huggingface-cli login` or notebook_login()")
+
+
+# %%  ========== CELL 5: HF -> F16 GGUF CONVERSION ==========
 GGUF_OUTPUT_BASE = "./sentineledge_gguf"
 os.makedirs(GGUF_OUTPUT_BASE, exist_ok=True)
 
@@ -160,9 +188,9 @@ F16_GGUF = os.path.join(GGUF_OUTPUT_BASE, "sentineledge-gemma2-2b-f16.gguf")
 if not os.path.exists(F16_GGUF):
     print(f"[*] Converting HF safetensors -> GGUF F16...")
     print(f"    This takes ~3-5 minutes for a 2B model")
-    
+
     convert_script = os.path.join(LLAMACPP_DIR, "convert_hf_to_gguf.py")
-    
+
     start = time.time()
     result = subprocess.run([
         sys.executable, convert_script,
@@ -170,22 +198,22 @@ if not os.path.exists(F16_GGUF):
         "--outfile", F16_GGUF,
         "--outtype", "f16",
     ], capture_output=True, text=True)
-    
+
     elapsed = time.time() - start
-    
+
     if result.returncode != 0:
         print(f"[!] Conversion stdout:\n{result.stdout[-1500:]}")
         print(f"[!] Conversion stderr:\n{result.stderr[-1500:]}")
         raise RuntimeError("HF -> GGUF conversion failed")
-    
+
     f16_size = os.path.getsize(F16_GGUF) / 1024**3
     print(f"[+] F16 GGUF created: {f16_size:.2f} GB ({elapsed:.0f}s)")
 else:
     f16_size = os.path.getsize(F16_GGUF) / 1024**3
     print(f"[+] F16 GGUF already exists: {f16_size:.2f} GB")
+ 
 
-
-# %%  ========== CELL 5: QUANTIZE TO TARGET LEVELS ==========
+# %%  ========== CELL 6: QUANTIZE TO TARGET LEVELS ==========
 QUANT_TARGETS = {
     "q8_0":   ("Q8_0",   "Laptop max quality",  "~2.68 GB"),
     "q5_k_m": ("Q5_K_M", "Laptop sweet spot",    "~1.82 GB"),
@@ -203,21 +231,21 @@ for method, (quant_type, desc, est_size) in QUANT_TARGETS.items():
     output_gguf = os.path.join(
         GGUF_OUTPUT_BASE, f"sentineledge-gemma2-2b-{method}.gguf"
     )
-    
+
     if os.path.exists(output_gguf):
         size = os.path.getsize(output_gguf) / 1024**3
         gguf_files[method] = output_gguf
         print(f"  [+] {method.upper():8s} already exists: {size:.2f} GB")
         continue
-    
+
     print(f"\n  [*] Quantizing to {quant_type} ({desc}, est {est_size})...")
     start = time.time()
-    
+
     result = subprocess.run(
         [QUANTIZE_BIN, F16_GGUF, output_gguf, quant_type],
         capture_output=True, text=True,
     )
-    
+
     if result.returncode == 0 and os.path.exists(output_gguf):
         size = os.path.getsize(output_gguf) / 1024**3
         elapsed = time.time() - start
@@ -228,91 +256,6 @@ for method, (quant_type, desc, est_size) in QUANT_TARGETS.items():
         print(f"      stderr: {result.stderr[-300:]}")
 
 print(f"\n[+] {len(gguf_files)} GGUF files generated")
-
-
-# %%  ========== CELL 6: VALIDATE GGUF ==========
-print("\n" + "=" * 65)
-print(" Validation (load smallest GGUF + test inference)")
-print("=" * 65)
-
-try:
-    from llama_cpp import Llama
-    
-    test_method = "q4_0" if "q4_0" in gguf_files else next(iter(gguf_files))
-    test_file = gguf_files[test_method]
-    
-    print(f"\n[*] Loading {test_method.upper()} for validation...")
-    llm = Llama(
-        model_path=test_file,
-        n_ctx=2048,
-        n_threads=4,
-        n_gpu_layers=0,
-        verbose=False,
-    )
-    
-    # Realistic SentinelEdge prompt format
-    test_prompt = """<bos><start_of_turn>user
-You are SentinelEdge, an AI-powered Zero-Trust cybersecurity monitor for a municipal water treatment SCADA system. Your role is to classify incoming Modbus commands as SAFE, SUSPICIOUS, or THREAT.
-
-OPERATIONAL SAFETY LIMITS:
-  Chlorine residual: 0.20-1.00 mg/L | pH: 6.5-8.5 | Tank level: >15%
-
-DEFINITIONS:
-- SAFE: Operationally appropriate
-- SUSPICIOUS: Within limits but contextually risky
-- THREAT: Limit violation or sabotage
-
-Respond with exactly:
-CATEGORY: [SAFE|SUSPICIOUS|THREAT]
-CONFIDENCE: [float 0.0-1.0]
-REASONING: [one concise sentence]
-
-[PLANT STATE]
-  chlorine_residual = 0.65 mg/L
-  ph = 7.3
-  tank_level = 65%
-
-[INCOMING MODBUS COMMAND]
-  function_code = FC03 (Read Holding Registers)
-  register_address = 40001
-  source_ip = 10.10.2.20
-
-Classify this command. Respond with CATEGORY, CONFIDENCE, and REASONING only.<end_of_turn>
-<start_of_turn>model
-"""
-    
-    print("[*] Running test inference...")
-    start = time.time()
-    
-    output = llm(
-        test_prompt,
-        max_tokens=200,
-        temperature=0.15,
-        top_p=0.90,
-        top_k=40,
-        repeat_penalty=1.18,
-        stop=["<end_of_turn>", "<eos>"],
-    )
-    
-    latency = (time.time() - start) * 1000
-    response = output["choices"][0]["text"].strip()
-    tokens_gen = output["usage"]["completion_tokens"]
-    tps = tokens_gen / (latency / 1000) if latency > 0 else 0
-    
-    print(f"\n  Response ({tokens_gen} tokens, {latency:.0f}ms, {tps:.1f} tok/s):")
-    print(f"  {response[:300]}")
-    
-    if "CATEGORY" in response:
-        print(f"\n  [+] GGUF validation PASSED")
-    else:
-        print(f"\n  [!] Output missing CATEGORY: keyword - check fine-tuning quality")
-    
-    del llm
-
-except ImportError:
-    print("[!] llama-cpp-python not available - skipping validation")
-except Exception as e:
-    print(f"[!] Validation error: {e}")
 
 
 # %%  ========== CELL 7: SAVE TO DRIVE ==========
@@ -326,9 +269,9 @@ try:
     from google.colab import drive
     if not os.path.exists("/content/drive/MyDrive"):
         drive.mount('/content/drive')
-    
+
     os.makedirs(GDRIVE_GGUF, exist_ok=True)
-    
+
     for method, filepath in gguf_files.items():
         if not os.path.exists(filepath):
             continue
@@ -337,7 +280,7 @@ try:
         print(f"  [*] Copying {method.upper()} ({size:.2f} GB)...")
         shutil.copy2(filepath, dest)
         print(f"  [+] {dest}")
-    
+
     # Metadata
     metadata = {
         "base_model": "google/gemma-2-2b-it",
@@ -354,7 +297,7 @@ try:
             for method, fp in gguf_files.items() if os.path.exists(fp)
         },
     }
-    
+
     with open(os.path.join(GDRIVE_GGUF, "model_metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
     print(f"\n  [+] Metadata: {GDRIVE_GGUF}/model_metadata.json")
@@ -374,39 +317,4 @@ for method, filepath in sorted(gguf_files.items()):
         size = os.path.getsize(filepath) / 1024**3
         _, desc, _ = QUANT_TARGETS[method]
         print(f"    sentineledge-gemma2-2b-{method}.gguf  ({size:.2f} GB)  {desc}")
-
-print("""
-
-==================================================
- LAPTOP (Ryzen 7 5700U, 16GB RAM)
-==================================================
- Recommended: Q5_K_M
- 
- Install (with BLAS for speedup):
-   CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" \\
-     pip install llama-cpp-python --force-reinstall --no-cache-dir
- 
- Run:
-   python 05_edge_inference_llamacpp.py \\
-     --model sentineledge-gemma2-2b-q5_k_m.gguf \\
-     --threads 16 --demo
-
-==================================================
- RASPBERRY PI 5 (8GB RAM, Cortex-A76)
-==================================================
- Recommended: Q4_K_M
- 
- Install:
-   sudo apt update && sudo apt install -y cmake g++ python3-pip
-   CMAKE_ARGS="-DGGML_NATIVE=ON" \\
-     pip install llama-cpp-python --break-system-packages
- 
- Run:
-   python 05_edge_inference_llamacpp.py \\
-     --model sentineledge-gemma2-2b-q4_k_m.gguf \\
-     --threads 4 --ctx-size 1024 --demo
- 
- Performance tip: enable performance governor
-   echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-""")
 print("=" * 65)
