@@ -66,7 +66,7 @@ for pkg in ["transformers", "trl", "peft", "bitsandbytes", "accelerate", "datase
         print(f"  {pkg:18s} = {getattr(mod, '__version__', 'unknown')}")
     except ImportError:
         print(f"  {pkg:18s} = NOT INSTALLED")
-
+     
 
 # %%  ========== CELL 2: GPU DIAGNOSTICS ==========
 import torch
@@ -81,7 +81,7 @@ if not torch.cuda.is_available():
     )
 
 GPU_NAME = torch.cuda.get_device_name(0)
-GPU_MEM_GB = torch.cuda.get_device_properties(0).total_mem / 1024**3
+GPU_MEM_GB = torch.cuda.get_device_properties(0).total_memory / 1024**3
 COMPUTE_CAP = torch.cuda.get_device_capability(0)
 SUPPORTS_BF16 = COMPUTE_CAP[0] >= 8  # Ampere+ supports bf16
 
@@ -333,10 +333,10 @@ print(f"    Headroom at MAX_SEQ_LENGTH={MAX_SEQ_LENGTH}: "
 
 
 # %%  ========== CELL 6: TRAIN/EVAL SPLIT ==========
-# 95/5 split. The dataset is already balanced (715 SAFE / 567 SUSPICIOUS / 548 THREAT)
+# 80/20 split. The dataset is already balanced
 # so a random shuffle gives a representative eval set.
 
-split = full_dataset.train_test_split(test_size=0.05, seed=42, shuffle=True)
+split = full_dataset.train_test_split(test_size=0.20, seed=42, shuffle=True)
 train_dataset = split["train"]
 eval_dataset = split["test"]
 
@@ -345,41 +345,28 @@ print(f"    Train: {len(train_dataset)} examples")
 print(f"    Eval:  {len(eval_dataset)} examples")
 
 
-# %%  ========== CELL 7: BUILD RESPONSE-ONLY LOSS COLLATOR ==========
-# This is the bulletproof way to do response-only loss masking on Gemma 2.
-#
-# DataCollatorForCompletionOnlyLM works by finding a specific token sequence
-# (the "response template") in each input_ids, and setting labels=-100 for
-# all tokens BEFORE that sequence. This computes loss only on the model's
-# response, not the user prompt.
-#
-# The challenge: tokenizing "<start_of_turn>model\n" in isolation may produce
-# DIFFERENT token IDs than when it appears inside a real conversation,
-# because of SentencePiece's whitespace handling.
-#
-# THE FIX: Derive the response_template token IDs from the ACTUAL output of
-# the chat template applied to a real example. This guarantees the IDs
-# match what appears in training inputs.
-
+# %% ========== CELL 7: BUILD RESPONSE-ONLY LOSS COLLATOR ==========
 from trl import DataCollatorForCompletionOnlyLM
 
 print("[*] Deriving response template token IDs from chat template output...")
 
 # Build a minimal example with just a user message and use add_generation_prompt=True
-# This produces text ending in the exact "<start_of_turn>model\n" sequence we want
-# to match in real training inputs.
 probe_messages = [{"role": "user", "content": "probe"}]
-probe_ids = tokenizer.apply_chat_template(
+probe_result = tokenizer.apply_chat_template(
     probe_messages,
     tokenize=True,
     add_generation_prompt=True,
+    return_dict=True, # Explicitly ask for a dict so we know what to expect
 )
+
+# --- THE FIX: Extract the actual list of token integers ---
+probe_ids = probe_result["input_ids"]
+
 print(f"    Probe input IDs (length={len(probe_ids)}): {probe_ids}")
 print(f"    Probe decoded: {tokenizer.decode(probe_ids)!r}")
 
 # The response template is the suffix of probe_ids starting from the LAST
-# <start_of_turn> token (id 106 for Gemma 2). Everything from that token
-# to the end is the marker that says "model is about to speak."
+# <start_of_turn> token (id 106 for Gemma 2).
 SOT_ID = tokenizer.convert_tokens_to_ids("<start_of_turn>")
 EOT_ID = tokenizer.convert_tokens_to_ids("<end_of_turn>")
 print(f"    <start_of_turn> id: {SOT_ID}")
@@ -387,6 +374,7 @@ print(f"    <end_of_turn> id:   {EOT_ID}")
 
 # Find the position of the LAST <start_of_turn> in probe_ids
 sot_positions = [i for i, t in enumerate(probe_ids) if t == SOT_ID]
+print(f"    Found SOT at positions: {sot_positions}")
 assert len(sot_positions) >= 2, (
     f"Expected at least 2 <start_of_turn> tokens, found {len(sot_positions)}. "
     "Chat template may be malformed."
@@ -394,13 +382,21 @@ assert len(sot_positions) >= 2, (
 response_start_idx = sot_positions[-1]
 
 # response_template_ids = the marker tokens that begin the model's turn
-# For Gemma 2 this is typically [106, model_token_id, newline_id]
 response_template_ids = probe_ids[response_start_idx:]
 print(f"\n    Response template token IDs: {response_template_ids}")
 print(f"    Decoded: {tokenizer.decode(response_template_ids)!r}")
 
 # Sanity check: this template MUST appear in a full training example
-sample_full_ids = tokenizer(train_dataset[0]["text"], add_special_tokens=False)["input_ids"]
+# (Added safe fallback to handle raw 'messages' if 'text' column doesn't exist)
+if "text" in train_dataset[0]:
+    sample_text = train_dataset[0]["text"]
+else:
+    sample_text = tokenizer.apply_chat_template(
+        train_dataset[0]["messages"], tokenize=False, add_generation_prompt=False
+    )
+
+sample_full_ids = tokenizer(sample_text, add_special_tokens=False)["input_ids"]
+
 def find_subsequence(haystack, needle):
     """Return the start index of needle in haystack, or -1 if not found."""
     n = len(needle)
@@ -451,46 +447,46 @@ print(f"    Warmup steps:     {warmup_steps}")
 sft_config = SFTConfig(
     # ---- Output ----
     output_dir="./sentineledge_checkpoints",
-    
+
     # ---- Dataset ----
     max_seq_length=MAX_SEQ_LENGTH,
     dataset_text_field="text",       # We pre-formatted into "text" in Cell 5
     packing=False,                   # Required with response-only collator
     dataset_num_proc=2,
-    
+
     # ---- Schedule ----
     num_train_epochs=3,
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     gradient_accumulation_steps=GRAD_ACCUM,
-    
+
     # ---- Optimizer ----
-    optim="paged_adamw_8bit",        # Same as medium post; saves VRAM
+    optim="paged_adamw_8bit",        # saves VRAM
     learning_rate=2e-4,
     weight_decay=0.01,
     max_grad_norm=1.0,
-    
+
     # ---- LR scheduler ----
     lr_scheduler_type="cosine",
     warmup_steps=warmup_steps,
-    
+
     # ---- Precision ----
     bf16=SUPPORTS_BF16,
     fp16=not SUPPORTS_BF16,
-    
+
     # ---- Memory ----
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
-    
+
     # ---- Logging ----
     logging_steps=5,
     logging_first_step=True,
     report_to="none",
-    
+
     # ---- Eval ----
     eval_strategy="steps",
     eval_steps=25,
-    
+
     # ---- Saving ----
     save_strategy="steps",
     save_steps=50,
@@ -498,7 +494,7 @@ sft_config = SFTConfig(
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
     greater_is_better=False,
-    
+
     # ---- Reproducibility ----
     seed=42,
     data_seed=42,
@@ -509,6 +505,8 @@ print(f"    Effective batch size: {BATCH_SIZE * GRAD_ACCUM}")
 print(f"    Learning rate:        {sft_config.learning_rate}")
 print(f"    LR scheduler:         {sft_config.lr_scheduler_type}")
 print(f"    Precision:            {'bf16' if SUPPORTS_BF16 else 'fp16'}")
+
+!pip uninstall -y wandb           #IMPORTANT
 
 
 # %%  ========== CELL 9: BUILD SFTTrainer + VERIFY MASKING ==========
@@ -537,13 +535,23 @@ print(f"    Eval examples:  {len(eval_dataset)}")
 # ---- Verify masking by inspecting an actual collated batch ----
 # This is the ground truth: we ask the trainer to give us the EXACT
 # label tensor that CrossEntropyLoss will see during training.
+# ---- Verify masking by inspecting an actual collated batch ----
 print(f"\n[*] Verifying response-only masking on a real batch...")
 
-# Get the first training example through the trainer's data pipeline
+# Get the first training examples through the trainer's data pipeline
 sample_dataset = trainer.train_dataset.select(range(min(2, len(trainer.train_dataset))))
-sample_examples = [sample_dataset[i] for i in range(len(sample_dataset))]
 
-# Run them through the collator (this is exactly what the training loop does)
+sample_examples = []
+for i in range(len(sample_dataset)):
+    # THE FIX: Strip out all string columns ('messages', 'text', etc.)
+    # Only keep the numeric token arrays that PyTorch expects!
+    clean_example = {
+        k: v for k, v in sample_dataset[i].items()
+        if k in ["input_ids", "attention_mask"]
+    }
+    sample_examples.append(clean_example)
+
+# Run them through the collator (this now perfectly simulates the training loop)
 batch = collator(sample_examples)
 labels = batch["labels"][0].tolist()
 input_ids = batch["input_ids"][0].tolist()
@@ -563,7 +571,7 @@ if trained_token_ids:
     decoded_trained = tokenizer.decode(trained_token_ids, skip_special_tokens=False)
     print(f"\n    First 250 chars of trained tokens (should contain CATEGORY):")
     print(f"    >>> {decoded_trained[:250]!r}")
-    
+
     if "CATEGORY" in decoded_trained:
         print(f"\n    [+] PASS — collator correctly identified the response region")
     else:
@@ -585,107 +593,7 @@ else:
     print(f"    [!] Unusual mask ratio ({trained_pct:.1f}%) — investigate")
 
 
-# %%  ========== CELL 10: EXPECTED LOSS TRAJECTORY ==========
-EXPECTED_LOSS_TRAJECTORY = """
-================================================================
- EXPECTED LOSS TRAJECTORY (response-only masking, pure HF stack)
-================================================================
-
-For 1738 train examples, effective batch size 16, 3 epochs:
-  steps_per_epoch ~= 108
-  total_steps     ~= 326
-  warmup_steps    ~= 16
-
-These numbers are for response-only loss (DataCollatorForCompletionOnlyLM
-masks the user prompt; loss is computed only on the model's CATEGORY/
-CONFIDENCE/REASONING output).
-
-+---------+-------------+------------+----------------------+
-|  Step   |  Train Loss |  Eval Loss |  What's happening    |
-+---------+-------------+------------+----------------------+
-|   0     |  3.5 - 4.5  |     -      | Cold start           |
-|   5     |  3.0 - 3.8  |     -      | Warmup ramp          |
-|  10     |  2.5 - 3.2  |     -      | Warmup ramp          |
-|  15     |  2.0 - 2.6  |     -      | End of warmup        |
-|  20     |  1.6 - 2.2  |     -      | Format learning      |
-|  25     |  1.3 - 1.8  |  1.4 - 2.0 | First eval point     |
-|  50     |  0.7 - 1.1  |  0.8 - 1.2 | Format locked in     |
-|  75     |  0.5 - 0.8  |  0.6 - 0.9 |                      |
-| 100     |  0.4 - 0.6  |  0.5 - 0.7 | End of epoch 1       |
-| 150     |  0.25- 0.45 |  0.35- 0.55|                      |
-| 200     |  0.18- 0.35 |  0.28- 0.45| End of epoch 2       |
-| 250     |  0.13- 0.28 |  0.23- 0.40|                      |
-| 300     |  0.10- 0.22 |  0.20- 0.36|                      |
-| 325     |  0.08- 0.18 |  0.20- 0.35| Final step           |
-+---------+-------------+------------+----------------------+
-
-================================================================
- IF YOU SEE LOSS = 9 OR HIGHER AT STEP 25
-================================================================
-That means response-only masking is broken — model is being asked
-to predict random plant state numbers (impossible task -> high loss).
-Check Cell 9 output:
-  - Trained tokens % should be 5-15% (not 0% and not 100%)
-  - First trained tokens MUST contain "CATEGORY"
-  - If either fails, DataCollatorForCompletionOnlyLM is not finding
-    the response template token IDs in the input_ids
-================================================================
-
-KEY MILESTONES:
-
-* Step 0: Loss should be 3.5-4.5
-  - For Gemma 2 with 256k vocab, ln(256000) ~= 12.45 = pure random
-  - Initial loss ~3-4 means LoRA init + good base model on a fresh task
-  - If you see >5: tokenizer/template/masking is broken
-  - If you see >9: response masking is completely wrong
-
-* Step 25: First eval (~step 25)
-  - Train ~1.3-1.8, Eval ~1.4-2.0
-  - The model has learned the CATEGORY/CONFIDENCE/REASONING format
-  - Eval slightly higher than train is normal
-
-* Step 100 (epoch 1 end): ~0.4-0.6
-  - Most of the learning happens here
-  - Eval should track within 0.1-0.2 of train
-
-* Step 200 (epoch 2 end): ~0.18-0.35
-  - Refining factual associations (chemical interactions, attack patterns)
-
-* Step 325 (final): ~0.08-0.18 train, ~0.20-0.35 eval
-  - load_best_model_at_end recovers the best eval checkpoint
-
-================================================================
- WARNING SIGNS
-================================================================
-
-[!] Loss > 5 at step 0:
-    Tokenizer or chat template broken. Re-run Cell 5 and Cell 9.
-
-[!] Loss > 8 at any point:
-    Response template matching failed. Check Cell 7's "Found at
-    position: X" output - if X = -1, the collator can't find the
-    boundary and is masking everything (or nothing).
-
-[!] Loss oscillates 2 -> 6 -> 1 -> 7:
-    LR too high. Drop to 1e-4 in Cell 8.
-
-[!] Eval >> Train (gap > 0.5):
-    Overfitting. Reduce epochs to 2.
-
-[!] NaN loss:
-    Use bf16, not fp16. Check max_grad_norm=1.0 is set.
-
-[!] OOM:
-    BATCH_SIZE=1, GRAD_ACCUM=16. Already auto-tuned in Cell 2.
-================================================================
-"""
-print(EXPECTED_LOSS_TRAJECTORY)
-print("[*] Training starts in 5 seconds...")
-import time
-time.sleep(5)
-
-
-# %%  ========== CELL 11: TRAIN ==========
+# %%  ========== CELL 10: TRAIN ==========
 print("=" * 60)
 print(" STARTING FINE-TUNING (pure HuggingFace stack)")
 print("=" * 60)
@@ -717,13 +625,25 @@ print(f" Samples/second:     {len(train_dataset) * 3 / elapsed:.1f}")
 print(f"{'=' * 60}")
 
 
-# %%  ========== CELL 12: FINAL EVALUATION ==========
+# %%  ========== CELL 11: EVALUATE MODEL LOSS TRENDS ==========
+# 1. Find and remove the notebook callback by its name (no imports needed!)
+callbacks_to_remove = [cb for cb in trainer.callback_handler.callbacks if cb.__class__.__name__ == "NotebookProgressCallback"]
+for cb in callbacks_to_remove:
+    trainer.remove_callback(cb)
+
+# 2. Run the evaluation
 print("[*] Running final evaluation on held-out set...")
 eval_results = trainer.evaluate()
 
 print(f"\n[+] Final Eval Results:")
 print(f"    eval_loss:        {eval_results['eval_loss']:.4f}")
-print(f"    eval_perplexity:  {2 ** eval_results['eval_loss']:.2f}")
+
+import math
+try:
+    perplexity = math.exp(eval_results['eval_loss'])
+    print(f"    eval_perplexity:  {perplexity:.2f}")
+except OverflowError:
+    print(f"    eval_perplexity:  Infinity")
 
 if 0.20 <= eval_results['eval_loss'] <= 0.40:
     print(f"    [+] Within expected range (0.20-0.40)")
@@ -734,9 +654,9 @@ else:
     print(f"        - Train more epochs")
     print(f"        - Increase LoRA rank to 64")
     print(f"        - Lower learning rate to 1e-4")
+ 
 
-
-# %%  ========== CELL 13: SANITY INFERENCE ==========
+# %%  ========== CELL 12: SANITY INFERENCE ==========
 print("\n[*] Running sanity inference on 3 examples (one per category)...\n")
 
 # Switch model to inference mode
@@ -770,22 +690,22 @@ correct_count = 0
 for i, example in enumerate(test_examples):
     user_msg = example["messages"][0]["content"]
     expected_label = example["label"]
-    
+
     # Build prompt with chat template + generation prompt
     input_text = tokenizer.apply_chat_template(
         [{"role": "user", "content": user_msg}],
         tokenize=False,
         add_generation_prompt=True,
     )
-    
+
     inputs = tokenizer(input_text, return_tensors="pt", add_special_tokens=False).to(model.device)
-    
+
     with torch.no_grad():
         output = model.generate(**inputs, generation_config=gen_config)
-    
+
     generated = output[0][inputs["input_ids"].shape[1]:]
     response = tokenizer.decode(generated, skip_special_tokens=True).strip()
-    
+
     # Parse predicted CATEGORY
     predicted = "UNKNOWN"
     for line in response.split("\n"):
@@ -794,11 +714,11 @@ for i, example in enumerate(test_examples):
             # Strip non-alpha
             predicted = "".join(c for c in predicted if c.isalpha())
             break
-    
+
     is_correct = predicted == expected_label
     correct_count += int(is_correct)
     status = "[OK]" if is_correct else "[X]"
-    
+
     print(f"--- Test {i+1}: expected={expected_label} ---")
     print(f"  Predicted: {predicted} {status}")
     print(f"  Response:  {response[:300]}")
@@ -857,22 +777,22 @@ try:
     from google.colab import drive
     if not os.path.exists("/content/drive/MyDrive"):
         drive.mount('/content/drive')
-    
+
     gdrive_root = "/content/drive/MyDrive/sentineledge_gemma2_model"
     os.makedirs(gdrive_root, exist_ok=True)
-    
+
     for src, name in [(LORA_DIR, "lora_adapters"), (MERGED_DIR, "merged_16bit")]:
         dest = os.path.join(gdrive_root, name)
         if os.path.exists(dest):
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
         print(f"[+] Copied to Drive: {dest}")
-        
+
 except Exception as e:
     print(f"[!] Drive save skipped: {e}")
 
 
-# %%  ========== CELL 15: EXPORT TRAINING METRICS ==========
+# %%  ========== CELL 14: EXPORT TRAINING METRICS ==========
 log_history = trainer.state.log_history
 metrics = {
     "train_loss_history": [
@@ -908,7 +828,7 @@ print(f"    Final train:  {metrics['final_train_loss']:.3f}")
 print(f"    Final eval:   {metrics['final_eval_loss']:.3f}")
 
 
-# %%  ========== CELL 16: DONE ==========
+# %%  ========== CELL 15: DONE ==========
 print(f"\n{'=' * 60}")
 print(f" FINE-TUNING COMPLETE")
 print(f"{'=' * 60}")
