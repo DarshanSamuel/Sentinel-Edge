@@ -4,18 +4,16 @@ These scripts run in **Google Colab** (or any environment with a GPU + internet 
 
 ## Run order
 
-1. **`01_scada_dataset_generator.py`** — Generate the training dataset (run locally OR in Colab).
-2. **`02_gemma2_finetune_colab.py`** — Fine-tune Gemma 2 2B-IT on the dataset (Colab T4/L4).
-3. **`04_gguf_conversion_colab.py`** — Convert merged 16-bit model to four GGUF quantizations (Colab CPU).
-
-> Note: there is no `03_` script in this folder — `03_scada_inference.py` is in `inference/` because it's a runtime tool, not a training step.
+1. **`generate_dataset.py`** — Generate the training dataset (run locally OR in Colab).
+2. **`gemma2_finetune_colab.py`** — Fine-tune Gemma 2 2B-IT on the dataset (Colab T4/L4).
+3. **`gguf_conversion_colab.py`** — Convert merged 16-bit model to four GGUF quantizations (Colab CPU).
 
 ## 01 — Dataset generator
 
 Pure-Python script (no GPU, no ML deps) that produces 1830 stratified training entries with 18 distinct physics-based scenarios spanning SAFE / SUSPICIOUS / THREAT classifications.
 
 ```bash
-python 01_scada_dataset_generator.py --total 1830 --output sentineledge_dataset.json
+python generate_dataset.py --total 1830 --output sentineledge_dataset.json
 ```
 
 Output: `sentineledge_dataset.json` (~9 MB) with the canonical SentinelEdge v4 format.
@@ -50,9 +48,9 @@ Clones llama.cpp, builds the `llama-quantize` binary, runs `convert_hf_to_gguf.p
 
 | Quant | Size | Recommended for |
 |---|---|---|
-| Q8_0 | ~2.68 GB | Laptop, max quality |
-| Q5_K_M | ~1.82 GB | Laptop, sweet spot |
-| Q4_K_M | ~1.57 GB | Raspberry Pi 5, balanced |
-| Q4_0 | ~1.44 GB | Raspberry Pi 5, fastest |
+| Q8_0 | ~2.68 GB | PC, max quality |
+| Q5_K_M | ~1.82 GB | PC, sweet spot |
+| Q4_K_M | ~1.57 GB | Edge Device, balanced |
+| Q4_0 | ~1.44 GB | Edge Device, fastest |
 
-After conversion, download the `.gguf` files from Google Drive and use them with `inference/05_edge_inference_llamacpp.py`, `inference/06_test_suite.py`, or `inference/08_inference_firestore.py`.
+After conversion, download the `.gguf` files from Google Drive and use them with `model_inference.py`
