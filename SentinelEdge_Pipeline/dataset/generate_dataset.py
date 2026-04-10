@@ -19,9 +19,9 @@
  Deterministic via --seed flag.
  
  Usage:
-   python 01_scada_dataset_generator.py
-   python 01_scada_dataset_generator.py --total 1830 --output sentineledge_dataset.json
-   python 01_scada_dataset_generator.py --total 500 --seed 123
+   python generate_dataset.py
+   python generate_dataset.py --total 1830 --output sentineledge_dataset.json
+   python generate_dataset.py --total 500 --seed 123
 ==========================================================================
 """
 
@@ -762,7 +762,7 @@ Examples:
     print(f"    Sources:       {dataset['source_distribution']}")
     print()
     print("[+] Upload this file to Colab or place it in your Google Drive,")
-    print("    then run 02_gemma2_finetune_colab.py.")
+    print("    then run gemma2_finetune_colab.py.")
 
 
 if __name__ == "__main__":
