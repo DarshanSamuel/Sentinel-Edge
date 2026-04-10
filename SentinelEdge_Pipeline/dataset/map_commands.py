@@ -310,7 +310,7 @@ def main():
         print(f"    '{alias}' -> {reg} -> {code}")
     
     print()
-    print("[+] Ready. Run 08_inference_firestore.py to use this mapping.")
+    print("[+] Ready. Run firebase_upload_service.py to use this mapping.")
     return 0
 
 
