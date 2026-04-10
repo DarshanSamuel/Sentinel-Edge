@@ -42,7 +42,7 @@ If you see step 25 loss > 5, something is wrong with response masking. Check Cel
 - `lora_adapters/` — LoRA-only weights (~80 MB)
 - `merged_16bit/` — Full merged 16-bit model (~5 GB)
 
-## 04 — GGUF conversion
+## 03 — GGUF conversion
 
 Clones llama.cpp, builds the `llama-quantize` binary, runs `convert_hf_to_gguf.py` on the merged 16-bit model from step 02, then quantizes to four levels:
 
