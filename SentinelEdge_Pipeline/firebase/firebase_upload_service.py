@@ -34,7 +34,10 @@
  Prerequisites:
    pip install firebase-admin
 
- Usage:
+ Usage (Simulation):
+   # Simulation
+   python firebase_upload_service.py
+
    # Upload a single random scenario
    python firebase_upload_service.py
 
@@ -47,6 +50,11 @@
    # Target specific label types for testing
    python firebase_upload_service.py --label THREAT --count 5
    python firebase_upload_service.py --label SAFE --count 5
+   
+ Usage (Real Time AI Inference Engine):
+   # Real Edge AI Hardware Mode
+  python firebase_upload_service.py --model models/sentineledge-gemma2-2b-q4_k_m.gguf --continuous --delay 10
+
 ==========================================================================
 """
 
@@ -60,6 +68,61 @@ import time
 import random
 import argparse
 import signal
+import re
+
+
+# ================================================================
+# SECTION 0: LOCAL AI INFERENCE (OPTIONAL)
+# ================================================================
+
+GEMMA2_PROMPT = "<bos><start_of_turn>user\n{user}<end_of_turn>\n<start_of_turn>model\n"
+
+def init_llm(model_path: str):
+    """Initializes the local LLM using llama_cpp for live inference."""
+    if not model_path:
+        return None
+    if not os.path.exists(model_path):
+        print(f"  ❌ Model file not found: {model_path}")
+        sys.exit(1)
+        
+    try:
+        from llama_cpp import Llama
+        print(f"  🧠 Loading LLM Model for LIVE inference: {model_path}...")
+        return Llama(
+            model_path=model_path,
+            n_ctx=2048, # Context window large enough for SCADA state + generation
+            n_threads=os.cpu_count() or 4,
+            n_gpu_layers=0, # Assuming CPU edge deployment
+            verbose=False
+        )
+    except ImportError:
+        print("  ❌ llama-cpp-python is required for live inference.")
+        print("  Run: pip install llama-cpp-python")
+        sys.exit(1)
+
+def parse_response(raw: str):
+    """Parses Category, Confidence, and Reasoning from LLM string output."""
+    category = "UNKNOWN"
+    confidence = 0.0
+    reasoning = ""
+    
+    for line in [l.strip() for l in raw.strip().split("\n")]:
+        up = line.upper()
+        if up.startswith("CATEGORY:"):
+            cat = "".join(c for c in line.split(":", 1)[1].strip().upper() if c.isalpha())
+            if cat in ("SAFE", "SUSPICIOUS", "THREAT"): category = cat
+        elif up.startswith("CONFIDENCE:"):
+            m = re.search(r'([\d.]+)', line.split(":", 1)[1])
+            if m: confidence = float(m.group(1))
+        elif up.startswith("REASONING:"):
+            reasoning = line.split(":", 1)[1].strip()
+            
+    if category == "UNKNOWN":
+        cat_m = re.search(r'CATEGORY[:\s]+([A-Z]+)', raw, re.IGNORECASE)
+        if cat_m and cat_m.group(1).upper() in ("SAFE", "SUSPICIOUS", "THREAT"):
+            category = cat_m.group(1).upper()
+            
+    return category, confidence, reasoning
 
 
 # ================================================================
@@ -69,7 +132,7 @@ import signal
 class FirebaseTelemetryService:
     """Handles authentication and document writes to Firestore."""
 
-    def __init__(self, credential_path="path/to/your/service-account.json"):
+    def __init__(self, credential_path="service-account.json"):
         """
         Initializes the Firebase Admin SDK.
         Uses a Service Account key, which bypasses client-side 
@@ -384,11 +447,36 @@ def run_single_scenario(
     index: int,
     total: int,
     label_filter: str = None,
+    llm = None,
 ):
     """Execute one full pipeline cycle: pick → display → upload."""
 
     # 1. Pick a random scenario
     entry = pick_random_scenario(dataset, label_filter)
+    
+    # 1.5. Live Model Inference (Optional)
+    if llm:
+        user_content = entry["messages"][0]["content"]
+        prompt = GEMMA2_PROMPT.format(user=user_content)
+        
+        start_time = time.time()
+        output = llm(
+            prompt,
+            max_tokens=200,
+            temperature=0.15,
+            stop=["<end_of_turn>", "<eos>"],
+        )
+        latency_ms = (time.time() - start_time) * 1000
+        raw_text = output["choices"][0]["text"].strip()
+        
+        category, confidence, reasoning = parse_response(raw_text)
+        
+        # Override mock ground-truth with live LLM inferences
+        entry["label"] = category
+        entry["metadata"]["confidence"] = confidence
+        entry["metadata"]["reasoning"] = reasoning
+        entry["metadata"]["latency_ms"] = round(latency_ms, 1)
+
     cmd = entry["metadata"]["modbus_command"]
     register_name = cmd.get("reg", "unknown")
 
@@ -456,14 +544,24 @@ Examples:
     parser.add_argument("--label", type=str, default=None,
                         choices=["SAFE", "SUSPICIOUS", "THREAT"],
                         help="Filter scenarios by classification label")
-    parser.add_argument("--credential", type=str, default="path/to/your/service-account.json",
-                        help="Path to Firebase service account JSON")
+    parser.add_argument("--credential", type=str, default="service-account.json",
+                        help="Path to Firebase service account JSON (default: service-account.json)")
     parser.add_argument("--dataset", type=str, default="sentineledge_dataset.json",
                         help="Path to the SentinelEdge dataset JSON")
     parser.add_argument("--codes", type=str, default="codes.json",
                         help="Path to the Modbus codes JSON")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Path to GGUF model for LIVE inference (bypasses mock data)")
 
     args = parser.parse_args()
+
+    # Banner
+    print(f"\n{'═' * 72}")
+    print(f" ╔═══════════════════════════════════════════════════════════════════╗")
+    print(f" ║          SENTINELEDGE — Firebase Upload Service                  ║")
+    print(f" ║          SCADA Edge AI → Cloud Telemetry Pipeline                ║")
+    print(f" ╚═══════════════════════════════════════════════════════════════════╝")
+    print(f"{'═' * 72}")
 
     # Load resources
     print(f"\n  Loading resources...")
@@ -471,6 +569,7 @@ Examples:
         codes_data = load_codes(args.codes)
         dataset = load_dataset(args.dataset)
         firebase = FirebaseTelemetryService(args.credential)
+        llm = init_llm(args.model)
     except FileNotFoundError as e:
         print(f"\n  ❌ {e}")
         sys.exit(1)
@@ -480,10 +579,12 @@ Examples:
 
     print(f"\n  {'─' * 50}")
     mode = "CONTINUOUS" if args.continuous else f"{args.count} scenario(s)"
-    print(f"  Mode:   {mode}")
-    print(f"  Delay:  {args.delay}s between uploads")
+    inference_mode = f"LIVE MODEL ({args.model})" if args.model else "SIMULATED (Dataset Labels)"
+    print(f"  Mode:      {mode}")
+    print(f"  Delay:     {args.delay}s between uploads")
+    print(f"  Inference: {inference_mode}")
     if args.label:
-        print(f"  Filter: {args.label} only")
+        print(f"  Filter:    {args.label} only")
     print(f"  {'─' * 50}")
 
     # Graceful shutdown on Ctrl+C
@@ -504,7 +605,7 @@ Examples:
                 index += 1
                 label = run_single_scenario(
                     firebase, dataset, codes_data, 
-                    index, total_str, args.label
+                    index, total_str, args.label, llm
                 )
                 stats[label] = stats.get(label, 0) + 1
                 if running[0]:
@@ -516,7 +617,7 @@ Examples:
                 index += 1
                 label = run_single_scenario(
                     firebase, dataset, codes_data,
-                    index, args.count, args.label
+                    index, args.count, args.label, llm
                 )
                 stats[label] = stats.get(label, 0) + 1
                 if i < args.count - 1 and running[0]:
