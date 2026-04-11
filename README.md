@@ -4,26 +4,7 @@ This repository contains the full architecture for an advanced Industrial IoT cy
 
 ## 🏗️ Architectural Overview
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1A1A24', 'primaryTextColor': '#00E5FF', 'primaryBorderColor': '#00E5FF', 'lineColor': '#1E90FF', 'clusterBkg': '#0F0F16', 'clusterBorder': '#333'}}}%%
-flowchart LR
-    subgraph "🏭 Edge Site"
-    Hardware[Modbus Sensors] -->|Polling| EdgeNode[Edge Device / Processor]
-    EdgeNode --> |Deep Packet Inspection| Parser[Inference Pipeline]
-    Parser --> |Local LLM| Gemma2[Gemma 2 Inference]
-    end
-
-    subgraph "☁️ Firebase Cloud"
-    Parser -->|Secure Telemetry Push| Firestore[(Firestore DB)]
-    Firestore -.->|Syncs Data| DashWeb
-    Firestore -.->|Auth Gate| Users[(Users Registry)]
-    end
-
-    subgraph "🛡️ Operations Center"
-    DashWeb{Flutter Dashboard} -->|StreamBuilder| Firestore
-    DashWeb -->|Admin Configures| Users
-    end
-```
+![SentinelEdge Architecture & Process Flow](./SentinelEdge_FlowBlock_Diagram.png)
 
 ## 📁 Repository Structure
 
