@@ -2,8 +2,7 @@
 
 This repository contains the full architecture for an advanced Industrial IoT cybersecurity evaluation pipeline. It combines an edge-deployed Modbus parsing / AI inference script (using local Large Language Models for classification) with a real-time reactive Flutter Dashboard that visually monitors ICS commands and enforces Role-Based Access Control (RBAC).
 
-🔗 **[Live Vercel MVP Deployment](https://sentinel-edge-dashboard.vercel.app)**  
-*(Note: As this is a Hackathon MVP, please allow a few seconds for the initial connection stream to establish).*
+🔗 **[Live Vercel Deployment](https://sentinel-edge-sooty.vercel.app/)**  
 
 ## 🏗️ Architectural Overview
 
