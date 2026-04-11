@@ -25,7 +25,17 @@ The Dashboard enforces strict RBAC (Role-Based Access Control). Newly generated 
 4. Register a new account.
 5. Go to your Firebase Cloud Firestore Console, find the newly generated user in the `users` collection, and manually change their fields to `role: 'admin'` and `status: 'approved'`. Refersh the Flutter app and login!
 
-### 2. Edge Python Pipeline Setup
+### 2. Vercel MVP Deployment (Flutter Web)
+This project is configured for secure, CI/CD automated deployments utilizing Vercel. All sensitive Firebase credentials have been abstracted into Environment Variables to strictly comply with Hackathon public-repository rules.
+
+1. Create a New Project in Vercel and import this GitHub repository.
+2. Under **Project Settings** during import, you must specify the **Root Directory** as `SentinelEdge_Dashboard`. (This is critical because it is a monorepo).
+3. The Build Command and Output Directory are automatically handled by the included `vercel.json` and `vercel_build.sh` scripts.
+4. Expand the **Environment Variables** section.
+5. Simply copy the contents of your local `.env` file (which should have been securely provided to you) and paste them into the first Vercel Key input field. Vercel will automatically parse and bulk-load all 7 keys (e.g., `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`).
+6. Click **Deploy**. Vercel will securely inject your credentials during the `--dart-define` compilation step without exposing them.
+
+### 3. Edge Python Pipeline Setup
 This service acts as the physical layer data injector.
 1. Go to your Firebase project and generate a new Service Account Private Key.
 2. Rename the json to `service-account.json` and place it in the pipeline directory.
