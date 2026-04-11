@@ -26,14 +26,16 @@ The Dashboard enforces strict RBAC (Role-Based Access Control). Newly generated 
 5. Go to your Firebase Cloud Firestore Console, find the newly generated user in the `users` collection, and manually change their fields to `role: 'admin'` and `status: 'approved'`. Refersh the Flutter app and login!
 
 ### 2. Vercel MVP Deployment (Flutter Web)
-This project is configured for secure, CI/CD automated deployments utilizing Vercel. All sensitive Firebase credentials have been abstracted into Environment Variables to strictly comply with Hackathon public-repository rules.
+This project is configured for secure, automated deployments utilizing Vercel. Sensitive Firebase credentials have been abstracted into Environment Variables to strictly comply with Hackathon public-repository rules.
 
-1. Create a New Project in Vercel and import this GitHub repository.
-2. Under **Project Settings** during import, you must specify the **Root Directory** as `SentinelEdge_Dashboard`. (This is critical because it is a monorepo).
-3. The Build Command and Output Directory are automatically handled by the included `vercel.json` and `vercel_build.sh` scripts.
+**To prevent `404 Not Found` errors and deploy correctly, follow these exact steps:**
+1. Create a **New Project** in Vercel and import this GitHub repository.
+2. Within the "Configure Project" screen, you MUST specify the **Root Directory** as `SentinelEdge_Dashboard`. Click **Edit** and select that folder. (This is critical because the repo is a monorepo).
+3. Open the **Build and Output Settings** tab. Ensure the **Framework Preset** is set to `Other`.
+   * *Note: `vercel.json` has been strictly configured to enforce the Build Command (`bash vercel_build.sh`) and explicitly set the Output Directory (`build/web`), ensuring `index.html` is hosted correctly without 404 routing anomalies.*
 4. Expand the **Environment Variables** section.
-5. Simply copy the contents of your local `.env` file (which should have been securely provided to you) and paste them into the first Vercel Key input field. Vercel will automatically parse and bulk-load all 7 keys (e.g., `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`).
-6. Click **Deploy**. Vercel will securely inject your credentials during the `--dart-define` compilation step without exposing them.
+5. Copy the contents of your provided `.env` file and paste them into the very first input field. Vercel will automatically bulk-load all 7 keys (e.g., `FIREBASE_API_KEY`, `FIREBASE_APP_ID`).
+6. Click **Deploy**. Vercel will securely inject your credentials during the hidden `--dart-define` compilation step.
 
 ### 3. Edge Python Pipeline Setup
 This service acts as the physical layer data injector.
