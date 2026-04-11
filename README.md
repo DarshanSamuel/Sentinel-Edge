@@ -10,7 +10,7 @@ This repository contains the full architecture for an advanced Industrial IoT cy
 
 - `SentinelEdge_Pipeline/`: Python codebase simulating the embedded SCADA edge parser. Extracts mock Modbus data from the dataset, evaluates it using a local GGML/GGUF model via `llama.cpp`, and uploads structured results to Firebase via the Admin SDK.
 - `SentinelEdge_Dashboard/`: The Flutter frontend (Dart/Google UI). Acts as the primary operations dashboard with color-coded Threat parsing, live Modbus graphs (via fl_chart), and strict user-registration boundaries.
-- `Colab_Notebooks/`: Contains the Jupyter notebooks utilized for fine-tuning the base `Gemma-2-2b-it` model on the custom SCADA dataset.
+- `Colab_Scripts/`: Contains the Jupyter notebooks utilized for fine-tuning the base `Gemma-2-2b-it` model on the custom SCADA dataset.
 
 ## 🚀 Setup & Execution Guide
 
