@@ -1,6 +1,6 @@
-# scada_dashboard
+# Sentinel Edge Dashboard
 
-A new Flutter project.
+A Dashboard for SCADA Security monitoring in Real Time made in Flutter.
 
 ## Getting Started
 
