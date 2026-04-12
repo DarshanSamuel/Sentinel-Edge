@@ -74,13 +74,6 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              
-              // Floating Kill Switch & System Status in Top Right Corner
-              Positioned(
-                top: 24,
-                right: 32, // A little bit to the inside
-                child: _buildFloatingKillSwitch(),
-              ),
             ],
           ),
         ),
@@ -91,25 +84,26 @@ class DashboardScreen extends StatelessWidget {
   Widget _buildHeader(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUserModel;
     
-    return Wrap(
-      alignment: WrapAlignment.spaceBetween,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 16,
-      runSpacing: 16,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 16,
+          runSpacing: 16,
           children: [
             const Icon(Icons.security, color: AppTheme.accentNeonCyan, size: 40),
-            const SizedBox(width: 16),
             Text(
               'Sentinel Edge AI',
               style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 24),
             ),
           ],
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             if (user != null && user.isAdmin) ...[
               ElevatedButton.icon(
@@ -121,7 +115,6 @@ class DashboardScreen extends StatelessWidget {
                   side: const BorderSide(color: AppTheme.accentNeonBlue),
                 ),
               ),
-              const SizedBox(width: 16),
             ],
             IconButton(
               icon: const Icon(Icons.logout, color: Colors.white70),
@@ -130,7 +123,7 @@ class DashboardScreen extends StatelessWidget {
               },
               tooltip: 'Logout',
             ),
-            const SizedBox(width: 250), 
+            _buildFloatingKillSwitch(),
           ],
         ),
       ],
@@ -271,6 +264,23 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildOverviewTab(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 900;
+
+    if (isMobile) {
+      return SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildSystemStatus(context),
+            const SizedBox(height: 20),
+            SizedBox(height: 400, child: _buildModbusCommandChart(context)),
+            const SizedBox(height: 20),
+            SizedBox(height: 400, child: _buildModbusLogs(context)),
+          ],
+        ),
+      );
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -278,7 +288,7 @@ class DashboardScreen extends StatelessWidget {
           flex: 2,
           child: Column(
             children: [
-              _buildSystemStatus(),
+              _buildSystemStatus(context),
               const SizedBox(height: 20),
               Expanded(child: _buildModbusCommandChart(context)),
             ],
@@ -293,7 +303,8 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSystemStatus() {
+  Widget _buildSystemStatus(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 900;
     return Consumer<DashboardProvider>(
       builder: (context, provider, child) {
         if (provider.logs.isEmpty) {
@@ -321,71 +332,83 @@ class DashboardScreen extends StatelessWidget {
         
         final displayLabel = classLabel == 'SUSPICIOUS' ? 'SUSP' : classLabel;
 
+        Widget commandBox = GlassContainer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('CURRENT COMMAND', style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 8),
+              Text(
+                latest.modbusCommand,
+                style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppTheme.accentNeonCyan, fontSize: 36),
+              ),
+            ],
+          ),
+        );
+
+        Widget detailsBox = GlassContainer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('COMMAND DETAILS', style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 8),
+              Text(
+                latest.registerName ?? 'Unknown Register',
+                style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppTheme.accentNeonBlue, fontSize: 24),
+              ),
+            ],
+          ),
+        );
+
+        Widget inferenceBox = GlassContainer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('INFERENCE', style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: classColor),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    displayLabel,
+                    style: Theme.of(context).textTheme.displayLarge?.copyWith(color: classColor, fontSize: 28),
+                  ),
+                ],
+              ),
+              if (latest.confidence != null)
+                Text(
+                  'Confidence Tracker: ${(latest.confidence! * 100).toStringAsFixed(1)}%',
+                  style: const TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.bold)
+                ),
+            ],
+          ),
+        );
+
+        if (isMobile) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              commandBox,
+              const SizedBox(height: 12),
+              detailsBox,
+              const SizedBox(height: 12),
+              inferenceBox,
+            ],
+          );
+        }
+
         return Row(
           children: [
-            Expanded(
-              child: GlassContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('CURRENT COMMAND', style: Theme.of(context).textTheme.bodyMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      latest.modbusCommand,
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppTheme.accentNeonCyan, fontSize: 36),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            Expanded(child: commandBox),
             const SizedBox(width: 20),
-            Expanded(
-              flex: 2,
-              child: GlassContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('COMMAND DETAILS', style: Theme.of(context).textTheme.bodyMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      latest.registerName ?? 'Unknown Register',
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppTheme.accentNeonBlue, fontSize: 24),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            Expanded(flex: 2, child: detailsBox),
             const SizedBox(width: 20),
-            Expanded(
-              child: GlassContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('INFERENCE', style: Theme.of(context).textTheme.bodyMedium),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(shape: BoxShape.circle, color: classColor),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          displayLabel,
-                          style: Theme.of(context).textTheme.displayLarge?.copyWith(color: classColor, fontSize: 28),
-                        ),
-                      ],
-                    ),
-                    if (latest.confidence != null)
-                      Text(
-                        'Confidence Tracker: ${(latest.confidence! * 100).toStringAsFixed(1)}%',
-                        style: const TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.bold)
-                      ),
-                  ],
-                ),
-              ),
-            ),
+            Expanded(child: inferenceBox),
           ],
         );
       },
@@ -684,6 +707,10 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildParametersTab(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final int crossAxisCount = screenWidth > 1200 ? 3 : (screenWidth > 800 ? 2 : 1);
+    final double childAspectRatio = screenWidth > 800 ? 3.0 : 2.5;
+
     return Consumer<DashboardProvider>(
       builder: (context, provider, child) {
         if (provider.logs.isEmpty || provider.logs.first.plantState.isEmpty) {
@@ -700,9 +727,9 @@ class DashboardScreen extends StatelessWidget {
         final state = provider.logs.first.plantState;
         
         return GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 3,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: childAspectRatio,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
@@ -745,6 +772,10 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildTrendGraphsTab(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final int crossAxisCount = screenWidth > 1200 ? 3 : (screenWidth > 800 ? 2 : 1);
+    final double childAspectRatio = screenWidth > 800 ? 1.5 : 1.2;
+
     return Consumer<DashboardProvider>(
       builder: (context, provider, child) {
         if (provider.logs.isEmpty || provider.logs.first.plantState.isEmpty) {
@@ -758,13 +789,24 @@ class DashboardScreen extends StatelessWidget {
           );
         }
 
-        final stateKeys = provider.logs.first.plantState.keys.toList();
+        final List<String> importantKeys = [
+          'flow_rate_L_min',
+          'distribution_pressure_PSI',
+          'chlorine_residual_mg_L',
+          'turbidity_treated_NTU',
+          'tank_level_pct'
+        ];
+        
+        final stateKeys = provider.logs.first.plantState.keys
+            .where((key) => importantKeys.contains(key))
+            .toList();
+            
         final reversedLogs = provider.logs.take(50).toList().reversed.toList();
 
         return GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 1.5,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: childAspectRatio,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
