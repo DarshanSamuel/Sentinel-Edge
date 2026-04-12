@@ -5,7 +5,7 @@ These scripts run in **Google Colab** (or any environment with a GPU + internet 
 ## Run order
 
 1. **`generate_dataset.py`** — Generate the training dataset (run locally OR in Colab).
-2. **`gemma2_finetune_colab.py`** — Fine-tune Gemma 2 2B-IT on the dataset (Colab T4/L4).
+2. **`gemma2_finetune_colab.py`** — Fine-tune Gemma 2 2B-IT on the dataset (Colab A100/L4).
 3. **`gguf_conversion_colab.py`** — Convert merged 16-bit model to four GGUF quantizations (Colab CPU).
 
 ## 01 — Dataset generator
