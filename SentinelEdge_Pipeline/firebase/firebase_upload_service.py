@@ -34,10 +34,7 @@
  Prerequisites:
    pip install firebase-admin
 
- Usage (Simulation):
-   # Simulation
-   python firebase_upload_service.py
-
+ Usage:
    # Upload a single random scenario
    python firebase_upload_service.py
 
@@ -50,11 +47,6 @@
    # Target specific label types for testing
    python firebase_upload_service.py --label THREAT --count 5
    python firebase_upload_service.py --label SAFE --count 5
-   
- Usage (Real Time AI Inference Engine):
-   # Real Edge AI Hardware Mode
-  python firebase_upload_service.py --model models/sentineledge-gemma2-2b-q4_k_m.gguf --continuous --delay 10
-
 ==========================================================================
 """
 
@@ -225,6 +217,16 @@ class FirebaseTelemetryService:
                 batch.commit()
         except Exception:
             pass
+
+    def is_plant_active(self) -> bool:
+        """Checks the global Kill Switch status from Firestore"""
+        try:
+            doc = self.db.collection("system_status").document("kill_switch").get()
+            if doc.exists:
+                return doc.to_dict().get("is_active", True)
+        except Exception as e:
+            pass
+        return True
 
 
 # ================================================================
@@ -558,8 +560,8 @@ Examples:
     # Banner
     print(f"\n{'═' * 72}")
     print(f" ╔═══════════════════════════════════════════════════════════════════╗")
-    print(f" ║          SENTINELEDGE — Firebase Upload Service                  ║")
-    print(f" ║          SCADA Edge AI → Cloud Telemetry Pipeline                ║")
+    print(f" ║          SENTINELEDGE — Firebase Upload Service                   ║")
+    print(f" ║          SCADA Edge AI → Cloud Telemetry Pipeline                 ║")
     print(f" ╚═══════════════════════════════════════════════════════════════════╝")
     print(f"{'═' * 72}")
 
@@ -602,6 +604,11 @@ Examples:
         if args.continuous:
             total_str = "∞"
             while running[0]:
+                if not firebase.is_plant_active():
+                    print("  🛑 KILL SWITCH ACTIVATED! Plant interface halted. Dropping Modbus commands...")
+                    time.sleep(args.delay)
+                    continue
+
                 index += 1
                 label = run_single_scenario(
                     firebase, dataset, codes_data, 
@@ -614,6 +621,12 @@ Examples:
             for i in range(args.count):
                 if not running[0]:
                     break
+
+                if not firebase.is_plant_active():
+                    print("  🛑 KILL SWITCH ACTIVATED! Plant interface halted. Dropping Modbus commands...")
+                    time.sleep(args.delay)
+                    continue
+
                 index += 1
                 label = run_single_scenario(
                     firebase, dataset, codes_data,

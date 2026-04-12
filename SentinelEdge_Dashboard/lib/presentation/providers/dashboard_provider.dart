@@ -16,9 +16,24 @@ class DashboardProvider extends ChangeNotifier {
   int _consecutiveAnomalies = 0;
 
   StreamSubscription? _firestoreSubscription;
+  StreamSubscription? _killSwitchSubscription;
 
   DashboardProvider() {
     _startFirebaseStream();
+    _listenToKillSwitch();
+  }
+
+  void _listenToKillSwitch() {
+    _killSwitchSubscription = FirebaseFirestore.instance
+        .collection('system_status')
+        .doc('kill_switch')
+        .snapshots()
+        .listen((doc) {
+      if (doc.exists && doc.data() != null) {
+        _isPlantActive = doc.data()!['is_active'] as bool? ?? true;
+        notifyListeners();
+      }
+    });
   }
 
   void _startFirebaseStream() {
@@ -68,7 +83,7 @@ class DashboardProvider extends ChangeNotifier {
         
         // Auto-kill plant if 5 consecutive anomalies
         if (_consecutiveAnomalies >= 5 && _isPlantActive) {
-          _isPlantActive = false; // Emergency kill switch triggered
+          killPlant(); // Emergency kill switch triggered globally
         }
 
         if (_logs.first.isAnomalous) {
@@ -95,20 +110,20 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   void killPlant() {
-    _isPlantActive = false;
-    notifyListeners();
+    // Write unconditionally to Firestore to trigger true IoT halt
+    FirebaseFirestore.instance.collection('system_status').doc('kill_switch').set({'is_active': false});
   }
 
   void resumePlant() {
-    _isPlantActive = true;
     _consecutiveAnomalies = 0; // Reset
     _isSystemSafe = true;
-    notifyListeners();
+    FirebaseFirestore.instance.collection('system_status').doc('kill_switch').set({'is_active': true});
   }
 
   @override
   void dispose() {
     _firestoreSubscription?.cancel();
+    _killSwitchSubscription?.cancel();
     super.dispose();
   }
 }
