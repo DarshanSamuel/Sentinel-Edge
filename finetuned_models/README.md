@@ -1,6 +1,6 @@
 # Gemma 2 (2B -it) GGUF Model Files
 
-### Since the finetuned Gemma 2 (2b -it) model GGUF Files have a large size and cannot be directly uploaded in GitHub, I have inserted links to my Google Drve Folder, where the model files are uploaded. They can be downloaded and directly implemented in the inference scripts.
+### Since the finetuned Gemma 2 (2B -it) model GGUF Files have a large size and cannot be directly uploaded in GitHub, I have inserted links to my Google Drve Folder, where the model files are uploaded. They can be downloaded and directly implemented in the inference scripts.
 
 ### There are 4 GGUF Format model files suitable for different types of host machines
 
